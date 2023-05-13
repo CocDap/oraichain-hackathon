@@ -16,7 +16,7 @@ pub const VOTING_TOKEN: &str = "voting_token";
 const CONTRACT_NAME: &str = "crates.io:voting";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-const MIN_STAKE_AMOUNT: u128 = 1;
+const MIN_STAKE_AMOUNT: u128 = 1000000;
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
@@ -49,6 +49,8 @@ pub fn execute(
             proposal_id,
             yes_vote,
         } => execute::vote(deps, info, proposal_id, yes_vote),
+
+        ExecuteMsg::EndVote { proposal_id } => execute::end_vote(deps, info, proposal_id),
         //ExecuteMsg::Withdraw {} => execute::withdraw(deps, info),
     }
 }
@@ -61,7 +63,7 @@ pub mod execute {
     pub fn vote(
         deps: DepsMut,
         info: MessageInfo,
-        proposal_id: u64,
+        proposal_id: u128,
         yes_vote: bool,
     ) -> Result<Response, ContractError> {
         let key_proposal_id = &proposal_id.to_be_bytes();
@@ -85,26 +87,31 @@ pub mod execute {
 
             match voter {
                 Some(mut voter) => {
-                    
+                    let stake_amount =
+                        match voter.vote_count.iter().position(|&x| x.0 == proposal_id) {
+                            Some(index) => {
+                                println!("Go to here");
+                                let next_vote = voter.vote_count.get(index).unwrap().1 + 1;
 
-                    let stake_amount = match voter.vote_count.iter().position(|&x| x.0 == proposal_id) {
-                        Some(index) => {
-                            println!("Go to here");
-                            let next_vote = voter.vote_count.get(index).unwrap().1 + 1;
+                                let insert_vote = (proposal_id, next_vote);
 
-                            let insert_vote = (proposal_id, next_vote);
+                                voter.vote_count.insert(index, insert_vote);
 
-                            voter.vote_count.insert(index, insert_vote);
+                                next_vote.checked_pow(2)
+                            }
+                            None => return Err(ContractError::NoProposalId {}),
+                        };
 
-                            next_vote.checked_pow(2)
-                        }
-                        None => return Err(ContractError::NoProposalId {}),
-                    };
+                    println!(
+                        "Staking amount:{}, funds:{:?}",
+                        stake_amount.unwrap(),
+                        info.funds
+                    );
 
-                    println!("Staking amount:{}, funds:{:?}",stake_amount.unwrap(), info.funds);
+                    let amount = MIN_STAKE_AMOUNT.checked_mul(stake_amount.unwrap() as u128).unwrap_or_default();
                     validate_sent_sufficient_coin(
                         &info.funds,
-                        Some(coin(stake_amount.unwrap() as u128, &state.denom)),
+                        Some(coin(amount, &state.denom)),
                     )?;
 
                     VOTERS.save(deps.storage, key_address, &voter)?;
@@ -117,7 +124,7 @@ pub mod execute {
 
                     validate_sent_sufficient_coin(
                         &info.funds,
-                        Some(coin(count as u128, &state.denom)),
+                        Some(coin(MIN_STAKE_AMOUNT, &state.denom)),
                     )?;
 
                     VOTERS.save(deps.storage, key_address, &voter)?;
@@ -185,6 +192,14 @@ pub mod execute {
 
         Ok(Response::new().add_attribute("action", "vote"))
     }
+
+    pub fn end_vote(
+        deps: DepsMut,
+        info: MessageInfo,
+        proposal_id: u128,
+    ) -> Result<Response, ContractError> {
+        Ok(Response::new().add_attribute("action", "end_vote"))
+    }
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -203,7 +218,7 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
 pub mod query {
     use super::*;
 
-    pub fn get_proposal(deps: Deps, proposal_id: u64) -> StdResult<GetProposalResponse> {
+    pub fn get_proposal(deps: Deps, proposal_id: u128) -> StdResult<GetProposalResponse> {
         let key = &proposal_id.to_be_bytes();
         let proposal = PROPOSALS.load(deps.storage, key)?;
         Ok(GetProposalResponse {
@@ -256,10 +271,10 @@ mod tests {
         let msg = InstantiateMsg {
             denom: String::from(VOTING_TOKEN),
         };
-        let info = mock_info("creator", &coins(2, &msg.denom));
+        let info = mock_info("creator", &coins(2000000, &msg.denom));
         let _res = instantiate(deps.as_mut(), mock_env(), info, msg.clone()).unwrap();
 
-        let info = mock_info(TEST_VOTER, &coins(1, &msg.denom));
+        let info = mock_info(TEST_VOTER, &coins(1000000, &msg.denom));
         let yes_vote = true;
         let proposal_id = 1;
         let msg_execute = ExecuteMsg::Vote {
@@ -288,9 +303,9 @@ mod tests {
         .unwrap();
         let token_stake: TokenStakeResponse = from_binary(&res).unwrap();
 
-        assert_eq!(Uint128::from(1u128), token_stake.token_balance);
+        assert_eq!(Uint128::from(1000000u128), token_stake.token_balance);
 
-        let info = mock_info(TEST_VOTER_2, &coins(1, &msg.denom));
+        let info = mock_info(TEST_VOTER_2, &coins(1000000, &msg.denom));
 
         let yes_vote = true;
         let proposal_id = 1;
@@ -321,7 +336,7 @@ mod tests {
         .unwrap();
         let token_stake: TokenStakeResponse = from_binary(&res).unwrap();
 
-        assert_eq!(Uint128::from(1u128), token_stake.token_balance);
+        assert_eq!(Uint128::from(1000000u128), token_stake.token_balance);
         println!("Success 2");
         //Third time
 
@@ -332,7 +347,7 @@ mod tests {
             yes_vote,
         };
 
-        let info = mock_info(TEST_VOTER_2, &coins(4, &msg.denom));
+        let info = mock_info(TEST_VOTER_2, &coins(4000000, &msg.denom));
         let _res = execute(deps.as_mut(), mock_env(), info, msg_execute).unwrap();
 
         let res = query(
@@ -355,7 +370,7 @@ mod tests {
         .unwrap();
         let token_stake: TokenStakeResponse = from_binary(&res).unwrap();
 
-        assert_eq!(Uint128::from(5u128), token_stake.token_balance);
+        assert_eq!(Uint128::from(5000000u128), token_stake.token_balance);
 
         //Four times
         let yes_vote = false;
@@ -365,7 +380,7 @@ mod tests {
             yes_vote,
         };
 
-        let info = mock_info(TEST_VOTER_2, &coins(9, &msg.denom));
+        let info = mock_info(TEST_VOTER_2, &coins(9000000, &msg.denom));
         let _res = execute(deps.as_mut(), mock_env(), info, msg_execute).unwrap();
 
         let res = query(
@@ -388,7 +403,7 @@ mod tests {
         .unwrap();
         let token_stake: TokenStakeResponse = from_binary(&res).unwrap();
 
-        assert_eq!(Uint128::from(14u128), token_stake.token_balance);
+        assert_eq!(Uint128::from(14000000u128), token_stake.token_balance);
 
         // Vote another proposal id
         let yes_vote = false;
@@ -398,7 +413,7 @@ mod tests {
             yes_vote,
         };
 
-        let info = mock_info(TEST_VOTER_3, &coins(1, &msg.denom));
+        let info = mock_info(TEST_VOTER_3, &coins(1000000, &msg.denom));
         let _res = execute(deps.as_mut(), mock_env(), info, msg_execute).unwrap();
 
         let res = query(
@@ -421,7 +436,7 @@ mod tests {
         .unwrap();
         let token_stake: TokenStakeResponse = from_binary(&res).unwrap();
 
-        assert_eq!(Uint128::from(1u128), token_stake.token_balance);
+        assert_eq!(Uint128::from(1000000u128), token_stake.token_balance);
 
         //Voter 3 vote for proposal 2
         let yes_vote = true;
@@ -431,7 +446,7 @@ mod tests {
             yes_vote,
         };
 
-        let info = mock_info(TEST_VOTER_3, &coins(4, &msg.denom));
+        let info = mock_info(TEST_VOTER_3, &coins(4000000, &msg.denom));
         let _res = execute(deps.as_mut(), mock_env(), info, msg_execute).unwrap();
 
         let res = query(
@@ -454,7 +469,7 @@ mod tests {
         .unwrap();
         let token_stake: TokenStakeResponse = from_binary(&res).unwrap();
 
-        assert_eq!(Uint128::from(5u128), token_stake.token_balance);
+        assert_eq!(Uint128::from(5000000u128), token_stake.token_balance);
     }
 
     /*

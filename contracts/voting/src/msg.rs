@@ -9,8 +9,9 @@ pub struct InstantiateMsg {
 
 #[cw_serde]
 pub enum ExecuteMsg {
-    Vote {proposal_id: u64, yes_vote: bool},
+    Vote {proposal_id: u128, yes_vote: bool},
     //Withdraw {},
+    EndVote{proposal_id: u128}
 }
 
 #[cw_serde]
@@ -19,7 +20,7 @@ pub enum QueryMsg {
     #[returns(State)]
     Config {},
     #[returns(GetProposalResponse)]
-    GetProposal {proposal_id: u64},
+    GetProposal {proposal_id: u128},
     #[returns(TokenStakeResponse)]
     TokenStake {address: Addr},
 }
