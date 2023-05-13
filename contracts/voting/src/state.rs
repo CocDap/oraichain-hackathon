@@ -15,9 +15,12 @@ pub struct State {
 #[cw_serde]
 pub enum ProposalStatus {
     InProgress,
+    Reviewed,
     Passed,
     Rejected,
+
 }
+
 
 
 #[cw_serde]

@@ -24,6 +24,8 @@ pub enum ContractError {
     #[error("Proposal not in progress")]
     ProposalNotInProgress{},
 
+    #[error("Proposal not in reviewed")]
+    ProposalNotInReview{},
 
 
 }

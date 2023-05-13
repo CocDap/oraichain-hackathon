@@ -10,8 +10,11 @@ pub struct InstantiateMsg {
 #[cw_serde]
 pub enum ExecuteMsg {
     Vote {proposal_id: Uint128, yes_vote: bool},
-    //Withdraw {},
-    EndVote{proposal_id: Uint128}
+    Review {proposal_id: Uint128, approved: bool},
+    EndVote{proposal_id: Uint128},
+    EndReview{proposal_id: Uint128},
+
+
 }
 
 #[cw_serde]
