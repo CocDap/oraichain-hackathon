@@ -24,7 +24,7 @@ pub enum ProposalStatus {
 pub struct Voter {
     //pub is_voted: bool,
     //Vec (proposal_id, number of votes)
-    pub vote_count: Vec<(u128,u64)>,
+    pub vote_count: Vec<(Uint128,u64)>,
 }
 
 

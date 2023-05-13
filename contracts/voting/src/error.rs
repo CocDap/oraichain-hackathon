@@ -18,8 +18,12 @@ pub enum ContractError {
     #[error("Overflow")]
     OverflowError{},
 
-    #[error("NoProposalId")]
-    NoProposalId{},
+    #[error("Proposal not found")]
+    ProposalNotFound{},
+
+    #[error("Proposal not in progress")]
+    ProposalNotInProgress{},
+
 
 
 }

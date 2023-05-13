@@ -16,7 +16,7 @@ pub const VOTING_TOKEN: &str = "voting_token";
 const CONTRACT_NAME: &str = "crates.io:voting";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-const MIN_STAKE_AMOUNT: u128 = 1000000;
+const MIN_STAKE_AMOUNT: u128 = 1000;
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
@@ -63,7 +63,7 @@ pub mod execute {
     pub fn vote(
         deps: DepsMut,
         info: MessageInfo,
-        proposal_id: u128,
+        proposal_id: Uint128,
         yes_vote: bool,
     ) -> Result<Response, ContractError> {
         let key_proposal_id = &proposal_id.to_be_bytes();
@@ -99,7 +99,7 @@ pub mod execute {
 
                                 next_vote.checked_pow(2)
                             }
-                            None => return Err(ContractError::NoProposalId {}),
+                            None => return Err(ContractError::ProposalNotFound {}),
                         };
 
                     println!(
@@ -108,11 +108,10 @@ pub mod execute {
                         info.funds
                     );
 
-                    let amount = MIN_STAKE_AMOUNT.checked_mul(stake_amount.unwrap() as u128).unwrap_or_default();
-                    validate_sent_sufficient_coin(
-                        &info.funds,
-                        Some(coin(amount, &state.denom)),
-                    )?;
+                    let amount = MIN_STAKE_AMOUNT
+                        .checked_mul(stake_amount.unwrap() as u128)
+                        .unwrap_or_default();
+                    validate_sent_sufficient_coin(&info.funds, Some(coin(amount, &state.denom)))?;
 
                     VOTERS.save(deps.storage, key_address, &voter)?;
                 }
@@ -196,8 +195,30 @@ pub mod execute {
     pub fn end_vote(
         deps: DepsMut,
         info: MessageInfo,
-        proposal_id: u128,
+        proposal_id: Uint128,
     ) -> Result<Response, ContractError> {
+        let key_proposal_id = &proposal_id.to_be_bytes();
+        let state = STATE.load(deps.storage)?;
+
+        if info.sender != state.owner {
+            return Err(ContractError::Unauthorized {});
+        }
+        match PROPOSALS.may_load(deps.storage, key_proposal_id)? {
+            Some(mut proposal) => {
+                if proposal.status != ProposalStatus::InProgress {
+                    return Err(ContractError::ProposalNotInProgress {});
+                }
+
+                if proposal.yes_votes > proposal.no_votes {
+                    proposal.status = ProposalStatus::Passed;
+                } else {
+                    proposal.status = ProposalStatus::Rejected;
+                }
+                PROPOSALS.save(deps.storage, key_proposal_id, &proposal)?;
+            }
+            None => return Err(ContractError::ProposalNotFound {}),
+        };
+
         Ok(Response::new().add_attribute("action", "end_vote"))
     }
 }
@@ -218,7 +239,7 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
 pub mod query {
     use super::*;
 
-    pub fn get_proposal(deps: Deps, proposal_id: u128) -> StdResult<GetProposalResponse> {
+    pub fn get_proposal(deps: Deps, proposal_id: Uint128) -> StdResult<GetProposalResponse> {
         let key = &proposal_id.to_be_bytes();
         let proposal = PROPOSALS.load(deps.storage, key)?;
         Ok(GetProposalResponse {
@@ -266,17 +287,18 @@ mod tests {
 
     #[test]
     fn vote() {
+        const BASE: u128 = 1000;
         let mut deps = mock_dependencies();
 
         let msg = InstantiateMsg {
             denom: String::from(VOTING_TOKEN),
         };
-        let info = mock_info("creator", &coins(2000000, &msg.denom));
+        let info = mock_info("creator", &coins(2*BASE, &msg.denom));
         let _res = instantiate(deps.as_mut(), mock_env(), info, msg.clone()).unwrap();
 
-        let info = mock_info(TEST_VOTER, &coins(1000000, &msg.denom));
+        let info = mock_info(TEST_VOTER, &coins(1*BASE, &msg.denom));
         let yes_vote = true;
-        let proposal_id = 1;
+        let proposal_id = Uint128::from(1u128);
         let msg_execute = ExecuteMsg::Vote {
             proposal_id,
             yes_vote,
@@ -286,7 +308,9 @@ mod tests {
         let res = query(
             deps.as_ref(),
             mock_env(),
-            QueryMsg::GetProposal { proposal_id: 1 },
+            QueryMsg::GetProposal {
+                proposal_id: Uint128::from(1u128),
+            },
         )
         .unwrap();
         let value: GetProposalResponse = from_binary(&res).unwrap();
@@ -303,12 +327,12 @@ mod tests {
         .unwrap();
         let token_stake: TokenStakeResponse = from_binary(&res).unwrap();
 
-        assert_eq!(Uint128::from(1000000u128), token_stake.token_balance);
+        assert_eq!(Uint128::from(1*BASE), token_stake.token_balance);
 
-        let info = mock_info(TEST_VOTER_2, &coins(1000000, &msg.denom));
+        let info = mock_info(TEST_VOTER_2, &coins(1*BASE, &msg.denom));
 
         let yes_vote = true;
-        let proposal_id = 1;
+        let proposal_id = Uint128::from(1u128);
         let msg_execute = ExecuteMsg::Vote {
             proposal_id,
             yes_vote,
@@ -319,7 +343,9 @@ mod tests {
         let res = query(
             deps.as_ref(),
             mock_env(),
-            QueryMsg::GetProposal { proposal_id: 1 },
+            QueryMsg::GetProposal {
+                proposal_id: Uint128::from(1u128),
+            },
         )
         .unwrap();
         let value: GetProposalResponse = from_binary(&res).unwrap();
@@ -336,24 +362,26 @@ mod tests {
         .unwrap();
         let token_stake: TokenStakeResponse = from_binary(&res).unwrap();
 
-        assert_eq!(Uint128::from(1000000u128), token_stake.token_balance);
+        assert_eq!(Uint128::from(1*BASE), token_stake.token_balance);
         println!("Success 2");
         //Third time
 
         let yes_vote = false;
-        let proposal_id = 1;
+        let proposal_id = Uint128::from(1u128);
         let msg_execute = ExecuteMsg::Vote {
             proposal_id,
             yes_vote,
         };
 
-        let info = mock_info(TEST_VOTER_2, &coins(4000000, &msg.denom));
+        let info = mock_info(TEST_VOTER_2, &coins(4*BASE, &msg.denom));
         let _res = execute(deps.as_mut(), mock_env(), info, msg_execute).unwrap();
 
         let res = query(
             deps.as_ref(),
             mock_env(),
-            QueryMsg::GetProposal { proposal_id: 1 },
+            QueryMsg::GetProposal {
+                proposal_id: Uint128::from(1u128),
+            },
         )
         .unwrap();
         let value: GetProposalResponse = from_binary(&res).unwrap();
@@ -370,23 +398,25 @@ mod tests {
         .unwrap();
         let token_stake: TokenStakeResponse = from_binary(&res).unwrap();
 
-        assert_eq!(Uint128::from(5000000u128), token_stake.token_balance);
+        assert_eq!(Uint128::from(5*BASE), token_stake.token_balance);
 
         //Four times
         let yes_vote = false;
-        let proposal_id = 1;
+        let proposal_id = Uint128::from(1u128);
         let msg_execute = ExecuteMsg::Vote {
             proposal_id,
             yes_vote,
         };
 
-        let info = mock_info(TEST_VOTER_2, &coins(9000000, &msg.denom));
+        let info = mock_info(TEST_VOTER_2, &coins(9*BASE, &msg.denom));
         let _res = execute(deps.as_mut(), mock_env(), info, msg_execute).unwrap();
 
         let res = query(
             deps.as_ref(),
             mock_env(),
-            QueryMsg::GetProposal { proposal_id: 1 },
+            QueryMsg::GetProposal {
+                proposal_id: Uint128::from(1u128),
+            },
         )
         .unwrap();
         let value: GetProposalResponse = from_binary(&res).unwrap();
@@ -403,23 +433,25 @@ mod tests {
         .unwrap();
         let token_stake: TokenStakeResponse = from_binary(&res).unwrap();
 
-        assert_eq!(Uint128::from(14000000u128), token_stake.token_balance);
+        assert_eq!(Uint128::from(14*BASE), token_stake.token_balance);
 
         // Vote another proposal id
         let yes_vote = false;
-        let proposal_id = 2;
+        let proposal_id = Uint128::from(2u128);
         let msg_execute = ExecuteMsg::Vote {
             proposal_id,
             yes_vote,
         };
 
-        let info = mock_info(TEST_VOTER_3, &coins(1000000, &msg.denom));
+        let info = mock_info(TEST_VOTER_3, &coins(1*BASE, &msg.denom));
         let _res = execute(deps.as_mut(), mock_env(), info, msg_execute).unwrap();
 
         let res = query(
             deps.as_ref(),
             mock_env(),
-            QueryMsg::GetProposal { proposal_id: 2 },
+            QueryMsg::GetProposal {
+                proposal_id: Uint128::from(2u128),
+            },
         )
         .unwrap();
         let value: GetProposalResponse = from_binary(&res).unwrap();
@@ -436,23 +468,25 @@ mod tests {
         .unwrap();
         let token_stake: TokenStakeResponse = from_binary(&res).unwrap();
 
-        assert_eq!(Uint128::from(1000000u128), token_stake.token_balance);
+        assert_eq!(Uint128::from(1*BASE), token_stake.token_balance);
 
         //Voter 3 vote for proposal 2
         let yes_vote = true;
-        let proposal_id = 2;
+        let proposal_id = Uint128::from(2u128);
         let msg_execute = ExecuteMsg::Vote {
             proposal_id,
             yes_vote,
         };
 
-        let info = mock_info(TEST_VOTER_3, &coins(4000000, &msg.denom));
+        let info = mock_info(TEST_VOTER_3, &coins(4*BASE, &msg.denom));
         let _res = execute(deps.as_mut(), mock_env(), info, msg_execute).unwrap();
 
         let res = query(
             deps.as_ref(),
             mock_env(),
-            QueryMsg::GetProposal { proposal_id: 2 },
+            QueryMsg::GetProposal {
+                proposal_id: Uint128::from(2u128),
+            },
         )
         .unwrap();
         let value: GetProposalResponse = from_binary(&res).unwrap();
@@ -469,38 +503,91 @@ mod tests {
         .unwrap();
         let token_stake: TokenStakeResponse = from_binary(&res).unwrap();
 
-        assert_eq!(Uint128::from(5000000u128), token_stake.token_balance);
+        assert_eq!(Uint128::from(5*BASE), token_stake.token_balance);
     }
 
-    /*
+    
     #[test]
-    fn withdraw() {
+    fn end_vote_passed() {
         let mut deps = mock_dependencies();
 
+        const BASE: u128 = 1000;
         let msg = InstantiateMsg {
             denom: String::from(VOTING_TOKEN),
         };
-        let info = mock_info("creator", &coins(2, "token"));
-        let _res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
+        let owner_info = mock_info("creator", &coins(1*BASE, &msg.denom));
+        let _res = instantiate(deps.as_mut(), mock_env(), owner_info.clone(), msg.clone()).unwrap();
 
-        // beneficiary can release it
-        let unauth_info = mock_info("anyone", &coins(2, "token"));
-        let msg = ExecuteMsg::Withdraw {};
-        let res = execute(deps.as_mut(), mock_env(), unauth_info, msg);
-        match res {
-            Err(ContractError::Unauthorized {}) => {}
-            _ => panic!("Must return unauthorized error"),
-        }
+        let voter_info = mock_info("anyone", &coins(1*BASE, &msg.denom));
 
-        // only the original creator can reset the counter
-        // let auth_info = mock_info("creator", &coins(2, "token"));
-        // let msg = ExecuteMsg::Reset { count: 5 };
-        // let _res = execute(deps.as_mut(), mock_env(), auth_info, msg).unwrap();
+        let yes_vote = true;
+        let proposal_id = Uint128::from(1u128);
+        let msg_execute = ExecuteMsg::Vote {
+            proposal_id,
+            yes_vote,
+        };
+        let _res = execute(deps.as_mut(), mock_env(), voter_info, msg_execute).unwrap();
 
-        // should now be 5
-        // let res = query(deps.as_ref(), mock_env(), QueryMsg::GetCount {}).unwrap();
-        // let value: GetCountResponse = from_binary(&res).unwrap();
-        // assert_eq!(5, value.count);
+        let msg_end_vote = ExecuteMsg::EndVote { proposal_id };
+
+        let _res = execute(deps.as_mut(), mock_env(), owner_info, msg_end_vote).unwrap();
+
+
+
+        let res = query(
+            deps.as_ref(),
+            mock_env(),
+            QueryMsg::GetProposal {
+                proposal_id: Uint128::from(1u128),
+            },
+        )
+        .unwrap();
+        let value: GetProposalResponse = from_binary(&res).unwrap();
+
+        assert_eq!(value.status, ProposalStatus::Passed);
+
     }
-    */
+
+    #[test]
+    fn end_vote_rejected() {
+        let mut deps = mock_dependencies();
+
+        const BASE: u128 = 1000;
+        let msg = InstantiateMsg {
+            denom: String::from(VOTING_TOKEN),
+        };
+        let owner_info = mock_info("creator", &coins(1*BASE, &msg.denom));
+        let _res = instantiate(deps.as_mut(), mock_env(), owner_info.clone(), msg.clone()).unwrap();
+
+        let voter_info = mock_info("anyone", &coins(1*BASE, &msg.denom));
+
+        let yes_vote = false;
+        let proposal_id = Uint128::from(1u128);
+        let msg_execute = ExecuteMsg::Vote {
+            proposal_id,
+            yes_vote,
+        };
+        let _res = execute(deps.as_mut(), mock_env(), voter_info, msg_execute).unwrap();
+
+        let msg_end_vote = ExecuteMsg::EndVote { proposal_id };
+
+        let _res = execute(deps.as_mut(), mock_env(), owner_info, msg_end_vote).unwrap();
+
+
+
+        let res = query(
+            deps.as_ref(),
+            mock_env(),
+            QueryMsg::GetProposal {
+                proposal_id: Uint128::from(1u128),
+            },
+        )
+        .unwrap();
+        let value: GetProposalResponse = from_binary(&res).unwrap();
+
+        assert_eq!(value.status, ProposalStatus::Rejected);
+
+    }
+
+    
 }
