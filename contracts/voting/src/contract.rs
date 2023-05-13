@@ -56,6 +56,9 @@ pub fn execute(
         } => execute::review(deps, info, proposal_id, approved),
         ExecuteMsg::EndVote { proposal_id } => execute::end_vote(deps, info, proposal_id),
         ExecuteMsg::EndReview { proposal_id } => execute::end_review(deps, info, proposal_id),
+        ExecuteMsg::FundingProposal {
+            proposal_id
+        } => execute::funding_proposal(deps, info, proposal_id),
         //ExecuteMsg::Withdraw {} => execute::withdraw(deps, info),
     }
 }
@@ -155,6 +158,7 @@ pub mod execute {
             }
 
             let new_proposal = Proposal {
+                fund_address: state.owner.clone().into_string(),
                 status: ProposalStatus::InProgress,
                 yes_votes: yes,
                 no_votes: no,
@@ -344,6 +348,15 @@ pub mod execute {
         Ok(Response::new().add_attribute("action", "end_review"))
     }
 
+    pub fn funding_proposal(
+        deps: DepsMut,
+        info: MessageInfo,
+        proposal_id: Uint128,
+    ) -> Result<Response, ContractError> {
+
+        Ok(Response::new().add_attribute("action", "funding_proposal"))
+
+    }
 
 }
 

@@ -14,10 +14,19 @@ pub struct State {
 
 #[cw_serde]
 pub enum ProposalStatus {
+    PreQual,
     InProgress,
     Reviewed,
     Passed,
     Rejected,
+
+}
+
+impl Default for ProposalStatus {
+    fn default() -> Self {
+    
+        Self::PreQual
+    }
 
 }
 
@@ -41,7 +50,9 @@ pub struct BalanceVote {
 
 
 #[cw_serde]
+#[derive(Default)]
 pub struct Proposal {
+    pub fund_address: String,
     pub status: ProposalStatus,
     pub yes_votes: Uint128,
     pub no_votes: Uint128,

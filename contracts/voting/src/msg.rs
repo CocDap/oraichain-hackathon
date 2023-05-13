@@ -13,6 +13,9 @@ pub enum ExecuteMsg {
     Review {proposal_id: Uint128, approved: bool},
     EndVote{proposal_id: Uint128},
     EndReview{proposal_id: Uint128},
+    FundingProposal {
+        proposal_id: Uint128,
+    },
 
 
 }

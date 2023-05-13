@@ -24,3 +24,19 @@ pub fn validate_sent_sufficient_coin(
     }
     Ok(())
 }
+
+
+pub fn extract_budget_coin(sent_funds: &[Coin], denom: &str) -> Result<Coin, ContractError> {
+    if sent_funds.len() != 1 {
+        return Err(ContractError::WrongCoinSent {});
+    }
+    if sent_funds[0].denom != *denom {
+        return Err(ContractError::WrongFundCoin {
+            expected: denom.to_string(),
+            got: sent_funds[0].denom.clone(),
+        });
+    }
+    Ok(sent_funds[0].clone())
+}
+
+

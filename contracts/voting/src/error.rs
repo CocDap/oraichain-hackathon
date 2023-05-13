@@ -27,5 +27,14 @@ pub enum ContractError {
     #[error("Proposal not in reviewed")]
     ProposalNotInReview{},
 
+    #[error("Wrong coin sent")]
+    WrongCoinSent {},
+
+    #[error("Wrong fund coin (expected: {expected}, got: {got})")]
+    WrongFundCoin { expected: String, got: String },
+
+    #[error("CLR algorithm requires a budget constrain")]
+    CLRConstrainRequired {},
+    
 
 }
